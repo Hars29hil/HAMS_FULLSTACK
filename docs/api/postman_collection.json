@@ -1,0 +1,56 @@
+{
+  "info": {
+    "name": "HAMS Backend API",
+    "description": "Postman Collection for Hostel Attendance Management System.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "http://localhost:3000/api/auth/login" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password123\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Dashboard",
+      "item": [
+        {
+          "name": "Get Stats",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "http://localhost:3000/api/admin/dashboard" },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ESP32",
+      "item": [
+        {
+          "name": "Attendance Event (RFID)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "http://localhost:3000/api/esp32/attendance/event" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"DEV_F1_01\",\n  \"device_secret\": \"super_secret_key_123\",\n  \"student_id\": \"STU001\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

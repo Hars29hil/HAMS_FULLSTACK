@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Env
+.env
+.env.local
+
+# Build/temp
+*.zip
+dist/
+build/
+test-unzip/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+firebase-service-account.json
