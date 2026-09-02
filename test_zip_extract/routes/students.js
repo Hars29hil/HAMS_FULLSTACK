@@ -59,8 +59,7 @@ async function syncStudentsFromApi() {
       await pool.query('UPDATE students SET floor_id = ? WHERE student_code = ?', [floorId, canonicalUsername]);
     }
   } catch (err) {
-    console.error('Error syncing students from API:', err.message || err);
-    // Do not throw the error, just let it fail silently so the local DB still loads
+    console.error('Error syncing students from API:', err);
   }
 }
 
@@ -130,13 +129,10 @@ router.post('/', async (req, res) => {
       finalFloorId = req.leader.floor_id;
     }
 
-    // Use student_code as a fallback for phone to prevent UNIQUE and NOT NULL constraint errors
-    const finalPhone = phone_number || student_code;
-
     await pool.query(
-      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
-      [student_code, name, finalPhone, dummyHash, finalFloorId]
+      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [student_code, name, phone_number || null, dummyHash, finalFloorId]
     );
     return res.json({ success: true, message: 'Student added successfully' });
   } catch (err) {

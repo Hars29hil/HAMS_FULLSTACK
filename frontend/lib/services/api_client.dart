@@ -16,9 +16,6 @@ class ApiClient {
       baseUrl: dotenv.env['API_BASE_URL'] ?? 'http://localhost:4000/api', 
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
-      headers: {
-        'ngrok-skip-browser-warning': 'true',
-      },
     ));
 
     dio.interceptors.add(InterceptorsWrapper(

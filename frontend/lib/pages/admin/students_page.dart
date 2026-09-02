@@ -250,6 +250,100 @@ class _StudentsPageState extends State<StudentsPage> {
     );
   }
 
+  Future<void> _showAddStudentFormDialog() async {
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController codeController = TextEditingController();
+    String? selectedFloorId;
+    
+    if (_userRole == 'LEADER') {
+      final prefs = await SharedPreferences.getInstance();
+      final floorId = prefs.get('leader_floor_id');
+      if (floorId != null) {
+        selectedFloorId = floorId.toString();
+      }
+    }
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Student manually', style: TextStyle(fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 400,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: codeController,
+                        decoration: const InputDecoration(labelText: 'Bank Code'),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedFloorId,
+                        decoration: const InputDecoration(labelText: 'Floor'),
+                        items: _floors.map((f) => DropdownMenuItem(
+                          value: f['floor_id'].toString(),
+                          child: Text(f['name']),
+                        )).toList(),
+                        onChanged: _userRole == 'LEADER' ? null : (val) {
+                          setDialogState(() {
+                            selectedFloorId = val;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (nameController.text.trim().isEmpty || codeController.text.trim().isEmpty || selectedFloorId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Name, Bank Code, and Floor are required.')));
+                      return;
+                    }
+                    try {
+                      await ApiClient().dio.post('/students', data: {
+                        'name': nameController.text.trim(),
+                        'student_code': codeController.text.trim(),
+                        'floor_id': selectedFloorId
+                      });
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                      _fetchData();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Student added successfully!')));
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error adding student: $e')));
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.accent, foregroundColor: Colors.black),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _students.isEmpty) {
@@ -275,6 +369,13 @@ class _StudentsPageState extends State<StudentsPage> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddStudentFormDialog,
+        icon: const Icon(LucideIcons.userPlus),
+        label: const Text('Add Student'),
+        backgroundColor: AppColors.accent,
+        foregroundColor: Colors.black,
+      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

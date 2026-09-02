@@ -23,7 +23,8 @@ class StudentDashboardPage extends StatefulWidget {
   State<StudentDashboardPage> createState() => _StudentDashboardPageState();
 }
 
-class _StudentDashboardPageState extends State<StudentDashboardPage> with SingleTickerProviderStateMixin {
+class _StudentDashboardPageState extends State<StudentDashboardPage>
+    with SingleTickerProviderStateMixin {
   String _name = '';
   String _room = '';
   String _phone = '';
@@ -47,7 +48,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    _fadeAnimation = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOut,
+    );
     _animController.forward();
     _loadStudentDetails();
     _checkAttendanceStatus();
@@ -100,7 +104,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         }
         return;
       }
-      
+
       final prefs = await SharedPreferences.getInstance();
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final markedDate = prefs.getString('last_attendance_date');
@@ -113,24 +117,29 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     }
   }
 
-
-
   String _friendlyError(dynamic e) {
     final msg = e.toString().toLowerCase();
 
-    if (msg.contains('already_marked') || msg.contains('already marked') || msg.contains('student_already_marked')) {
+    if (msg.contains('already_marked') ||
+        msg.contains('already marked') ||
+        msg.contains('student_already_marked')) {
       return 'Your attendance is already marked for today. Come back tomorrow!';
     }
     if (msg.contains('device_already_used')) {
       return 'This device has already been used to mark attendance today.';
     }
-    if (msg.contains('no_active_session') || msg.contains('no active') || msg.contains('attendance is closed') || msg.contains('session has ended')) {
+    if (msg.contains('no_active_session') ||
+        msg.contains('no active') ||
+        msg.contains('attendance is closed') ||
+        msg.contains('session has ended')) {
       return 'Attendance is not open right now. Please check the schedule and try again during the allowed time.';
     }
     if (msg.contains('session has not started')) {
       return 'Attendance has not started yet. Please wait for the scheduled time.';
     }
-    if (msg.contains('bluetooth') || msg.contains('ble') || msg.contains('gatt')) {
+    if (msg.contains('bluetooth') ||
+        msg.contains('ble') ||
+        msg.contains('gatt')) {
       return 'Could not connect to the floor device. Make sure Bluetooth is turned on and you are on your assigned floor.';
     }
     if (msg.contains('permission')) {
@@ -148,15 +157,22 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     if (msg.contains('floor')) {
       return 'You are not on your assigned floor. Please go to your floor and try again.';
     }
-    if (msg.contains('network') || msg.contains('socket') || msg.contains('connection refused')) {
+    if (msg.contains('network') ||
+        msg.contains('socket') ||
+        msg.contains('connection refused')) {
       return 'Could not connect to the server. Please check your internet connection.';
     }
     if (msg.contains('platform') || msg.contains('platformexception')) {
       return 'Something went wrong with your device. Please restart the app and try again.';
     }
 
-    String cleaned = e.toString().replaceAll('Exception: ', '').replaceAll('exception: ', '');
-    if (cleaned.contains('(') || cleaned.contains('/') || cleaned.contains('.') && cleaned.length > 80) {
+    String cleaned = e
+        .toString()
+        .replaceAll('Exception: ', '')
+        .replaceAll('exception: ', '');
+    if (cleaned.contains('(') ||
+        cleaned.contains('/') ||
+        cleaned.contains('.') && cleaned.length > 80) {
       return 'Something went wrong. Please try again or contact your floor leader for help.';
     }
     return cleaned;
@@ -166,7 +182,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     if (_alreadyMarked) {
       _showResultDialog(
         title: 'Already Marked',
-        message: 'Your attendance is already marked for today. Come back tomorrow!',
+        message:
+            'Your attendance is already marked for today. Come back tomorrow!',
         icon: Icons.info_outline,
         color: AppColors.accent,
       );
@@ -176,7 +193,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     if (!_attendanceActive && _startTime.isNotEmpty && _endTime.isNotEmpty) {
       _showResultDialog(
         title: 'Not Available',
-        message: 'Attendance is available from $_startTime to $_endTime. Please come back during that time.',
+        message:
+            'Attendance is available from $_startTime to $_endTime. Please come back during that time.',
         icon: Icons.schedule,
         color: AppColors.amber,
       );
@@ -184,9 +202,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     }
 
     setState(() => _isMarking = true);
-    
+
     BluetoothDevice? targetDevice;
-    
+
     try {
       // ── Step 1: Request Permissions ──
       Map<Permission, PermissionStatus> statuses = await [
@@ -195,39 +213,52 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         Permission.location,
       ].request();
 
-      if (statuses.values.any((status) => status.isPermanentlyDenied || status.isDenied)) {
-        throw Exception('Bluetooth and Location permissions are needed to mark attendance. Please allow them in your phone settings.');
+      if (statuses.values.any(
+        (status) => status.isPermanentlyDenied || status.isDenied,
+      )) {
+        throw Exception(
+          'Bluetooth and Location permissions are needed to mark attendance. Please allow them in your phone settings.',
+        );
       }
 
-      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
-         throw Exception('Please turn on Bluetooth to mark your attendance.');
+      if (await FlutterBluePlus.adapterState.first !=
+          BluetoothAdapterState.on) {
+        throw Exception('Please turn on Bluetooth to mark your attendance.');
       }
 
-      final targetServiceUuid = fbp.Guid('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
-      final targetCharacteristicUuid = fbp.Guid('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+      final targetServiceUuid = fbp.Guid(
+        '4fafc201-1fb5-459e-8fcc-c5c9c331914b',
+      );
+      final targetCharacteristicUuid = fbp.Guid(
+        'beb5483e-36e1-4688-b7f5-ea07361b26a8',
+      );
 
       // ── Step 2: Scan for ESP32 BLE Device ──
       int scanRssi = -50; // Default safe RSSI value
 
       final scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult r in results) {
-          final deviceName = r.device.platformName.isNotEmpty 
-              ? r.device.platformName 
+          final deviceName = r.device.platformName.isNotEmpty
+              ? r.device.platformName
               : r.advertisementData.advName;
 
           final lowerName = deviceName.toLowerCase();
-          
+
           // Check if the name matches OR if it's broadcasting our specific Service UUID
-          bool nameMatches = lowerName.contains('hostel') || 
-                             lowerName.contains('esp32') || 
-                             lowerName.contains('floor') ||
-                             lowerName.contains('attendance');
-                             
-          bool uuidMatches = r.advertisementData.serviceUuids.contains(targetServiceUuid);
+          bool nameMatches =
+              lowerName.contains('hostel') ||
+              lowerName.contains('esp32') ||
+              lowerName.contains('floor') ||
+              lowerName.contains('attendance');
+
+          bool uuidMatches = r.advertisementData.serviceUuids.contains(
+            targetServiceUuid,
+          );
 
           if (nameMatches || uuidMatches) {
             targetDevice = r.device;
-            scanRssi = r.rssi; // Capture RSSI from scan (more reliable than readRssi)
+            scanRssi =
+                r.rssi; // Capture RSSI from scan (more reliable than readRssi)
             FlutterBluePlus.stopScan();
             break;
           }
@@ -239,13 +270,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
       await scanSubscription.cancel();
 
       if (targetDevice == null) {
-        throw Exception('Could not find the floor device. Make sure you are on your assigned floor and try again.');
+        throw Exception(
+          'Could not find the floor device. Make sure you are on your assigned floor and try again.',
+        );
       }
 
       // ── Step 3: Connect to ESP32 (with Android 133 fix) ──
       if (Platform.isAndroid) {
         await Future.delayed(const Duration(milliseconds: 600));
-        try { await targetDevice!.disconnect(); } catch (_) {}
+        try {
+          await targetDevice!.disconnect();
+        } catch (_) {}
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
@@ -258,7 +293,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         );
       } catch (e) {
         // Retry once on Android Error 133
-        try { await targetDevice!.disconnect(); } catch (_) {}
+        try {
+          await targetDevice!.disconnect();
+        } catch (_) {}
         await Future.delayed(const Duration(seconds: 1));
         await targetDevice!.connect(
           timeout: const Duration(seconds: 12),
@@ -267,7 +304,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
           license: fbp.License.nonprofit,
         );
       }
-      
+
       // ── Step 4: Read the BLE Token ──
       String bleToken = "";
 
@@ -275,7 +312,8 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         // Give Android time to stabilize the GATT connection
         await Future.delayed(const Duration(milliseconds: 800));
 
-        List<BluetoothService> services = await targetDevice!.discoverServices();
+        List<BluetoothService> services = await targetDevice!
+            .discoverServices();
         BluetoothCharacteristic? targetCharacteristic;
 
         for (BluetoothService service in services) {
@@ -290,30 +328,87 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         }
 
         if (targetCharacteristic == null) {
-          throw Exception('Could not connect to the floor device properly. Please try again.');
+          throw Exception(
+            'Could not connect to the floor device properly. Please try again.',
+          );
         }
 
         final tokenBytes = await targetCharacteristic.read();
         bleToken = utf8.decode(tokenBytes).trim();
 
+        // ── Step 5: App-Bridged Architecture Logic ──
+        if (bleToken == 'NONE') {
+          // The ESP-32 has no token yet! We are the first student.
+          // Let's ask the backend for a token and write it to the ESP-32.
+          try {
+            final reqRes = await ApiClient().dio.post(
+              '/attendance/request-token',
+              data: {"rssi": scanRssi},
+            );
+
+            if (reqRes.data['success'] == true) {
+              String generatedToken = reqRes.data['token'];
+              int durationMinutes = reqRes.data['duration_minutes'] ?? 120;
+
+              // Tell the ESP-32 its new token and duration!
+              String writeCommand = "SET:$generatedToken:$durationMinutes";
+              await targetCharacteristic.write(utf8.encode(writeCommand));
+
+              // The backend /request-token endpoint already marked our attendance!
+              bleToken = generatedToken; // Update local variable just in case
+
+              // Disconnect and jump to Success
+              try {
+                await targetDevice!.disconnect();
+              } catch (_) {}
+
+              if (mounted) {
+                final prefs = await SharedPreferences.getInstance();
+                final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+                await prefs.setString('last_attendance_date', today);
+
+                setState(() {
+                  _alreadyMarked = true;
+                });
+
+                _showResultDialog(
+                  title: 'Success!',
+                  message:
+                      'Your attendance has been marked!Come tommory again to be consistent',
+                  icon: Icons.star,
+                  color: AppColors.green,
+                );
+              }
+              return; // We are completely done!
+            }
+          } on DioException catch (dioErr) {
+            final serverMsg = dioErr.response?.data?['message'];
+            if (serverMsg != null && serverMsg.toString().isNotEmpty) {
+              throw Exception(serverMsg);
+            }
+            rethrow;
+          }
+        }
       } finally {
-        try { await targetDevice!.disconnect(); } catch (_) {}
+        // Only disconnect here if we haven't already returned early
+        try {
+          if (targetDevice!.isConnected) {
+            await targetDevice!.disconnect();
+          }
+        } catch (_) {}
       }
 
-      // ── Step 5: Validate the token before sending ──
-      if (bleToken.isEmpty || bleToken == 'NOT_ACTIVE') {
-        throw Exception('Attendance is not active on this floor device right now. Please wait for it to start or ask your floor leader.');
-      }
-
-      // ── Step 6: Send the token to the server ──
+      // ── Step 6: Normal Attendance (Token already existed) ──
       try {
-        final res = await ApiClient().dio.post('/attendance/mark', data: {
-          "ble_token": bleToken,
-          "rssi": scanRssi,
-        });
+        final res = await ApiClient().dio.post(
+          '/attendance/mark',
+          data: {"ble_token": bleToken, "rssi": scanRssi},
+        );
 
         if (res.data['success'] != true) {
-          throw Exception(res.data['message'] ?? 'Failed to mark attendance on the server.');
+          throw Exception(
+            res.data['message'] ?? 'Failed to mark attendance on the server.',
+          );
         }
       } on DioException catch (dioErr) {
         // Extract the server's actual error message from the response
@@ -336,16 +431,18 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
 
         _showResultDialog(
           title: 'Success!',
-          message: 'Your attendance has been marked successfully. Have a great evening!',
+          message:
+              'Your attendance has been marked successfully. Have a great evening!',
           icon: Icons.check_circle_outline,
           color: AppColors.green,
         );
       }
-
     } catch (e) {
       if (!mounted) return;
       // Make sure we disconnect if something went wrong mid-flow
-      try { await targetDevice?.disconnect(); } catch (_) {}
+      try {
+        await targetDevice?.disconnect();
+      } catch (_) {}
       _showResultDialog(
         title: 'Could Not Mark Attendance',
         message: _friendlyError(e),
@@ -359,7 +456,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
     }
   }
 
-  void _showResultDialog({required String title, required String message, required IconData icon, required Color color}) {
+  void _showResultDialog({
+    required String title,
+    required String message,
+    required IconData icon,
+    required Color color,
+  }) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -376,14 +478,33 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
               child: Icon(icon, color: color, size: 24),
             ),
             const SizedBox(width: 12),
-            Expanded(child: Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18))),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
           ],
         ),
-        content: Text(message, style: const TextStyle(fontSize: 15, color: AppColors.text, height: 1.5)),
+        content: Text(
+          message,
+          style: const TextStyle(
+            fontSize: 15,
+            color: AppColors.text,
+            height: 1.5,
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('OK', style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+            child: Text(
+              'OK',
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
+            ),
           ),
         ],
       ),
@@ -398,7 +519,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.green.withValues(alpha: 0.15), AppColors.accent.withValues(alpha: 0.08)],
+          colors: [
+            AppColors.green.withValues(alpha: 0.15),
+            AppColors.accent.withValues(alpha: 0.08),
+          ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.green.withValues(alpha: 0.3)),
@@ -411,18 +535,30 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
               shape: BoxShape.circle,
               color: AppColors.green.withValues(alpha: 0.2),
             ),
-            child: const Icon(Icons.check_circle, color: AppColors.green, size: 48),
+            child: const Icon(
+              Icons.check_circle,
+              color: AppColors.green,
+              size: 48,
+            ),
           ),
           const SizedBox(height: 16),
           const Text(
             'Attendance Marked!',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.green),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppColors.green,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Your attendance has been recorded for today.\nSee you tomorrow!',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: AppColors.green.withValues(alpha: 0.8), height: 1.5),
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.green.withValues(alpha: 0.8),
+              height: 1.5,
+            ),
           ),
         ],
       ),
@@ -455,7 +591,12 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: statusColor,
-                  boxShadow: [BoxShadow(color: statusColor.withValues(alpha: 0.6), blurRadius: 8)],
+                  boxShadow: [
+                    BoxShadow(
+                      color: statusColor.withValues(alpha: 0.6),
+                      blurRadius: 8,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 14),
@@ -465,12 +606,19 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                   children: [
                     Text(
                       isOpen ? 'Attendance is OPEN' : 'Attendance is CLOSED',
-                      style: TextStyle(fontWeight: FontWeight.w700, color: statusColor, fontSize: 14),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                        fontSize: 14,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       'Today\'s window: $_startTime – $_endTime',
-                      style: TextStyle(fontSize: 12, color: statusColor.withValues(alpha: 0.7)),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: statusColor.withValues(alpha: 0.7),
+                      ),
                     ),
                   ],
                 ),
@@ -498,12 +646,27 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
               const SizedBox(height: 3),
-              Text(value, style: const TextStyle(fontSize: 15, color: AppColors.text, fontWeight: FontWeight.w600)),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: AppColors.text,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
-        )
+        ),
       ],
     );
   }
@@ -515,7 +678,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Dashboard', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Dashboard',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: AppColors.textMuted),
@@ -546,32 +712,61 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                               padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: const LinearGradient(colors: [AppColors.accent, AppColors.accent]),
+                                gradient: const LinearGradient(
+                                  colors: [AppColors.accent, AppColors.accent],
+                                ),
                                 boxShadow: [
-                                  BoxShadow(color: AppColors.accent.withValues(alpha: 0.4), blurRadius: 20),
+                                  BoxShadow(
+                                    color: AppColors.accent.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                    blurRadius: 20,
+                                  ),
                                 ],
                               ),
                               child: CircleAvatar(
                                 radius: 36,
                                 backgroundColor: AppColors.bg,
                                 child: Text(
-                                  _name.isNotEmpty ? _name[0].toUpperCase() : '?',
-                                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.text),
+                                  _name.isNotEmpty
+                                      ? _name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.text,
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'Welcome, $_name!',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.text),
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.text,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 28),
-                            _buildInfoRow(Icons.meeting_room_outlined, 'ROOM', _room),
+                            _buildInfoRow(
+                              Icons.meeting_room_outlined,
+                              'ROOM',
+                              _room,
+                            ),
                             Divider(height: 28, color: AppColors.border),
-                            _buildInfoRow(Icons.phone_outlined, 'PHONE', _phone),
+                            _buildInfoRow(
+                              Icons.phone_outlined,
+                              'PHONE',
+                              _phone,
+                            ),
                             Divider(height: 28, color: AppColors.border),
-                            _buildInfoRow(Icons.email_outlined, 'EMAIL', _email),
+                            _buildInfoRow(
+                              Icons.email_outlined,
+                              'EMAIL',
+                              _email,
+                            ),
                           ],
                         ),
                       ),
@@ -589,7 +784,9 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                             if (_isLoadingStatus)
                               const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 24),
-                                child: CircularProgressIndicator(color: AppColors.accent),
+                                child: CircularProgressIndicator(
+                                  color: AppColors.accent,
+                                ),
                               )
                             else if (_alreadyMarked)
                               _buildSuccessBanner()
@@ -597,14 +794,28 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                               RadarAnimation(
                                 isScanning: _isMarking,
                                 child: ShaderMask(
-                                  shaderCallback: (bounds) => const LinearGradient(colors: [AppColors.accent, AppColors.accent]).createShader(bounds),
-                                  child: const Icon(Icons.bluetooth_searching, size: 48, color: Colors.white),
+                                  shaderCallback: (bounds) =>
+                                      const LinearGradient(
+                                        colors: [
+                                          AppColors.accent,
+                                          AppColors.accent,
+                                        ],
+                                      ).createShader(bounds),
+                                  child: const Icon(
+                                    Icons.bluetooth_searching,
+                                    size: 48,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 16),
                               const Text(
                                 'Mark Attendance',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.text),
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.text,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
@@ -612,7 +823,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage> with Single
                                     ? 'Make sure you are on your floor. Bluetooth will connect to the floor device.'
                                     : 'Attendance opens from $_startTime to $_endTime.',
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.5),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textMuted,
+                                  height: 1.5,
+                                ),
                               ),
                               const SizedBox(height: 24),
                               SizedBox(

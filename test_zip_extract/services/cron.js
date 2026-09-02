@@ -77,9 +77,13 @@ cron.schedule('* * * * *', async () => {
 
     // 1. At Start Time
     if (nowTime === startTimeMs) {
-      // Token generation is now handled by the first student's app hitting /request-token
-      // (App-Bridged Offline Anchor architecture)
-      console.log('Attendance window started. Waiting for first student to generate token.');
+      // Generate tokens for all floors
+      const [floors] = await pool.query('SELECT floor_id FROM floors');
+      for (const floor of floors) {
+        const token = generateRandomToken();
+        await pool.query('UPDATE floors SET current_token = ? WHERE floor_id = ?', [token, floor.floor_id]);
+      }
+      console.log('Generated new attendance tokens for all floors.');
 
       const tokens = await getAllStudentTokens();
       await sendPushNotification(tokens, "Attendance is Started! ⏰", "The attendance window is now open. Please mark your attendance.");
