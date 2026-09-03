@@ -80,6 +80,10 @@ class MyCharacteristicCallbacks : public BLECharacteristicCallbacks {
                     tokenReceivedTime = millis(); // Start the timer
                     updateBLEAdvertisement(currentToken);
                     
+                    // !!! THE CRITICAL FIX FOR THE WEB APP !!!
+                    pCharacteristic->setValue(currentToken);
+                    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    
                     // Switch to Blue LED
                     digitalWrite(RED_LED_PIN, LOW);
                     digitalWrite(BLUE_LED_PIN, HIGH);
@@ -134,6 +138,10 @@ void loop() {
       if (millis() - tokenReceivedTime >= ACTIVE_DURATION_MS) {
           Serial.println("Attendance time over. Resetting to NONE.");
           strcpy(currentToken, "NONE");
+          
+          // !!! CRITICAL FIX !!! Reset the characteristic value to NONE as well
+          pCharacteristic->setValue("NONE");
+          
           updateBLEAdvertisement(currentToken);
           
           // Switch back to Red LED
