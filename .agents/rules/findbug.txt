@@ -1,0 +1,14 @@
+frontend
+
+
+"Scan the frontend directory for bugs, runtime errors, and broken imports. Do NOT modify any files or generate code fixes yet. Provide a summary listing each issue, the file path, line numbers, and the exact root cause."
+
+
+backend
+
+
+Scan the attendance-backend directory for bugs, runtime errors, unhandled exceptions, and database query issues. Do NOT apply any code fixes or modify files. List all identified issues with their exact file path, line numbers, and root causes.
+
+esp-32 frim ware
+
+Scan the esp32_firmware directory for bugs, memory leaks, pinout misconfigurations, buffer overflows, and runtime errors. Do NOT apply any code fixes or edit files. Provide a structured summary listing each issue, the file path, line numbers, and the exact root cause.

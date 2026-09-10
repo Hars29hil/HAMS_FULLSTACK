@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
@@ -20,38 +19,32 @@ class HamsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: null,
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: AppColors.border,
-              width: 1,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x1A000000),
-                blurRadius: 30,
-                offset: Offset(0, 8),
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface, // Solid white background
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: AppColors.border,
+          width: 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000), // Very soft, diffused shadow
+            blurRadius: 20,
+            offset: Offset(0, 4),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(borderRadius),
-              onTap: onTap,
-              splashColor: AppColors.accent.withValues(alpha: 0.1),
-              highlightColor: AppColors.borderSoft,
-              child: Padding(
-                padding: padding,
-                child: child,
-              ),
-            ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(borderRadius),
+          onTap: onTap,
+          splashColor: AppColors.accent.withValues(alpha: 0.1),
+          highlightColor: AppColors.surfaceHighlight,
+          child: Padding(
+            padding: padding,
+            child: child,
           ),
         ),
       ),

@@ -255,7 +255,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
             targetServiceUuid,
           );
 
-          if (nameMatches || uuidMatches) {
+          bool serviceDataMatches = r.advertisementData.serviceData.containsKey(
+            targetServiceUuid,
+          );
+
+          if (nameMatches || uuidMatches || serviceDataMatches) {
             targetDevice = r.device;
             scanRssi =
                 r.rssi; // Capture RSSI from scan (more reliable than readRssi)
@@ -342,13 +346,13 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
           // Let's ask the backend for a token and write it to the ESP-32.
           try {
             final reqRes = await ApiClient().dio.post(
-              '/attendance/request-token',
+              '/attendance/challenge',
               data: {"rssi": scanRssi},
             );
 
-            if (reqRes.data['success'] == true) {
-              String generatedToken = reqRes.data['token'];
-              int durationMinutes = reqRes.data['duration_minutes'] ?? 120;
+            if (reqRes.data is Map && reqRes.data['success'] == true) {
+              String generatedToken = reqRes.data['challenge'];
+              int durationMinutes = 120; // Default 2 hours
 
               // Tell the ESP-32 its new token and duration!
               String writeCommand = "SET:$generatedToken:$durationMinutes";
@@ -382,11 +386,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
               return; // We are completely done!
             }
           } on DioException catch (dioErr) {
-            final serverMsg = dioErr.response?.data?['message'];
-            if (serverMsg != null && serverMsg.toString().isNotEmpty) {
-              throw Exception(serverMsg);
+            final data = dioErr.response?.data;
+            if (data is Map && data['message'] != null) {
+              throw Exception(data['message'].toString());
             }
-            rethrow;
+            throw Exception('Server error: ${dioErr.message}');
           }
         }
       } finally {
@@ -402,21 +406,21 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
       try {
         final res = await ApiClient().dio.post(
           '/attendance/mark',
-          data: {"ble_token": bleToken, "rssi": scanRssi},
+          data: {"proof": bleToken, "rssi": scanRssi},
         );
 
-        if (res.data['success'] != true) {
+        if (res.data is Map && res.data['success'] != true) {
           throw Exception(
             res.data['message'] ?? 'Failed to mark attendance on the server.',
           );
         }
       } on DioException catch (dioErr) {
-        // Extract the server's actual error message from the response
-        final serverMsg = dioErr.response?.data?['message'];
-        if (serverMsg != null && serverMsg.toString().isNotEmpty) {
-          throw Exception(serverMsg);
+        // Extract the server's actual error message safely
+        final data = dioErr.response?.data;
+        if (data is Map && data['message'] != null) {
+          throw Exception(data['message'].toString());
         }
-        rethrow;
+        throw Exception('Server error: ${dioErr.message}');
       }
 
       // ── Step 7: Success! ──
@@ -712,15 +716,14 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                               padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [AppColors.accent, AppColors.accent],
-                                ),
+                                gradient: AppColors.accentGradient,
                                 boxShadow: [
                                   BoxShadow(
                                     color: AppColors.accent.withValues(
-                                      alpha: 0.4,
+                                      alpha: 0.15,
                                     ),
-                                    blurRadius: 20,
+                                    blurRadius: 15,
+                                    offset: const Offset(0, 4),
                                   ),
                                 ],
                               ),
@@ -790,6 +793,26 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                               )
                             else if (_alreadyMarked)
                               _buildSuccessBanner()
+                            else if (!_attendanceActive)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 24),
+                                child: Column(
+                                  children: [
+                                    const Icon(Icons.schedule, size: 48, color: AppColors.amber),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Attendance is closed.\nAvailable between $_startTime and $_endTime',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        color: AppColors.amber,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
                             else ...[
                               RadarAnimation(
                                 isScanning: _isMarking,
@@ -818,12 +841,10 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                _attendanceActive
-                                    ? 'Make sure you are on your floor. Bluetooth will connect to the floor device.'
-                                    : 'Attendance opens from $_startTime to $_endTime.',
+                              const Text(
+                                'Make sure you are on your floor. Bluetooth will connect to the floor device.',
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 13,
                                   color: AppColors.textMuted,
                                   height: 1.5,

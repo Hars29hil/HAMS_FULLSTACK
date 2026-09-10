@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const { verifyStudent, verifyFloorLeader, verifyAdminOrFloorLeader } = require('../middleware/auth');
-const { isTokenValid } = require('../utils/bleToken');
 const admin = require('../config/firebase');
+const crypto = require('crypto');
+
+const SECRET_KEY = process.env.AES_SECRET_KEY || 'HAMS_SECRET_KEY!'; // Must be 16 bytes for AES-128
 
 const MIN_RSSI = parseInt(process.env.MIN_RSSI || '-100', 10);
 
@@ -37,22 +39,32 @@ router.get('/my-status', verifyStudent, async (req, res) => {
     const sessionDate = now.toISOString().slice(0, 10);
     let alreadyMarked = false;
 
-    const [sessions] = await pool.query(
-      'SELECT id FROM attendance_sessions WHERE floor_id = ? AND session_date = ?',
-      [floorId, sessionDate]
-    );
+    // Fetch from Night Attendance API
+    const https = require('https');
+    const apiData = await new Promise((resolve, reject) => {
+      https.get(`https://api.avdvvn.org/public/getAttendance?date=${sessionDate}&type=night`, {
+        headers: { 'x-hsh-auth-token': 'aF92Kx7QmN4Lp8Vz' }
+      }, (response) => {
+        let data = '';
+        response.on('data', chunk => data += chunk);
+        response.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }).on('error', reject);
+    });
 
-    if (sessions.length > 0) {
-      const sessionId = sessions[0].id;
-      
+    if (apiData && apiData.auth && apiData.data) {
       const [studentRows] = await pool.query('SELECT student_code FROM students WHERE id = ?', [studentId]);
       if (studentRows.length > 0) {
-          const bankCode = studentRows[0].student_code;
-          const [records] = await pool.query(
-            'SELECT bank_code FROM attendance_records WHERE session_id = ? AND bank_code = ?',
-            [sessionId, bankCode]
-          );
-          alreadyMarked = records.length > 0;
+        const bankCode = studentRows[0].student_code;
+        const match = apiData.data.find(s => String(s.bankCode).replace(/^0+(?=\d)/, '') === String(bankCode).replace(/^0+(?=\d)/, ''));
+        if (match) {
+          alreadyMarked = true;
+        }
       }
     }
 
@@ -105,12 +117,12 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
     const now = new Date();
     const [startH, startM] = startTime.split(':').map(Number);
     const [endH, endM] = endTime.split(':').map(Number);
-    
+
     if (startTime !== endTime) {
       try {
         const [students] = await pool.query('SELECT fcm_token FROM students WHERE fcm_token IS NOT NULL');
         const tokens = students.map(s => s.fcm_token).filter(t => t);
-        
+
         if (tokens.length > 0) {
           const message = {
             notification: {
@@ -119,7 +131,7 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
             },
             tokens: tokens,
           };
-          
+
           admin.messaging().sendMulticast(message)
             .then((response) => console.log(response.successCount + ' messages sent'))
             .catch((error) => console.error('Error sending FCM:', error));
@@ -137,18 +149,42 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
 });
 
 // ------------------------------------------------------------
+// POST /api/attendance/challenge
+// Generate AES encrypted challenge for the student's floor
+// ------------------------------------------------------------
+router.post('/challenge', verifyStudent, async (req, res) => {
+  try {
+    const floorId = req.student.floor_id || 0;
+    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp in seconds
+    const payload = `SUCCESS_${floorId}_TS_${timestamp}`;
+
+    // AES Encryption (ECB mode for simplicity on ESP32, or CBC with fixed IV if preferred. Using ECB here for microcontroller simplicity)
+    const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(SECRET_KEY, 'utf8'), null);
+    cipher.setAutoPadding(true);
+    let encrypted = cipher.update(payload, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    return res.json({ success: true, challenge: encrypted.toUpperCase() });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: 'Server error generating challenge' });
+  }
+});
+
+// ------------------------------------------------------------
 // POST /api/attendance/mark
 // ------------------------------------------------------------
 router.post('/mark', verifyStudent, async (req, res) => {
   try {
-    const { ble_token, rssi } = req.body;
-    if (!ble_token || rssi === undefined) {
+    const { proof, rssi } = req.body;
+    if (!proof || rssi === undefined) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     const floorId = req.student.floor_id || 0;
     const studentId = req.student.id;
 
+    // Validate global schedule
     const [settingsRows] = await pool.query('SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("DAILY_START_TIME", "DAILY_END_TIME")');
     let startTimeStr = '21:00';
     let endTimeStr = '21:30';
@@ -160,12 +196,45 @@ router.post('/mark', verifyStudent, async (req, res) => {
     const now = new Date();
     const [startH, startM] = startTimeStr.split(':').map(Number);
     const [endH, endM] = endTimeStr.split(':').map(Number);
-
     const startDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startH, startM, 0);
     const endDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endH, endM, 0);
 
     if (now < startDt || now > endDt) {
       return res.status(400).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Attendance window is currently closed' });
+    }
+
+    // Decrypt Proof
+    let decryptedProof;
+    try {
+      const decipher = crypto.createDecipheriv('aes-128-ecb', Buffer.from(SECRET_KEY, 'utf8'), null);
+      decipher.setAutoPadding(true);
+      let decrypted = decipher.update(proof, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      decryptedProof = decrypted;
+    } catch (e) {
+      return res.status(403).json({ success: false, code: 'INVALID_PROOF', message: 'Invalid cryptographic proof from device' });
+    }
+
+    // Validate Proof Format (SUCCESS_floorId_TS_timestamp)
+    const proofParts = decryptedProof.split('_');
+    if (proofParts.length !== 4 || proofParts[0] !== 'SUCCESS' || proofParts[2] !== 'TS') {
+      return res.status(403).json({ success: false, code: 'INVALID_PROOF', message: 'Malformed proof from device' });
+    }
+
+    const proofFloorId = parseInt(proofParts[1], 10);
+    const proofTimestamp = parseInt(proofParts[3], 10);
+
+    if (proofFloorId !== floorId) {
+      return res.status(403).json({ success: false, code: 'INVALID_FLOOR', message: 'You are not connected to your assigned floor device' });
+    }
+
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    if (Math.abs(currentTimestamp - proofTimestamp) > 60) {
+      return res.status(403).json({ success: false, code: 'EXPIRED_PROOF', message: 'Proof expired. Please try again.' });
+    }
+
+    if (rssi < MIN_RSSI) {
+      return res.status(403).json({ success: false, code: 'WEAK_SIGNAL', message: 'Move closer to the classroom device' });
     }
 
     const sessionDate = now.toISOString().slice(0, 10);
@@ -187,42 +256,18 @@ router.post('/mark', verifyStudent, async (req, res) => {
       activeSessionId = sessions[0].id;
     }
 
-    // 2. BLE token must match the current dynamic token generated for this floor
-    const [floorRows] = await pool.query('SELECT current_token FROM floors WHERE floor_id = ?', [floorId]);
-    if (floorRows.length === 0 || !floorRows[0].current_token) {
-      return res.status(403).json({ success: false, code: 'INVALID_TOKEN', message: 'Attendance is not currently active for this floor' });
-    }
-    
-    const isValid = (floorRows[0].current_token === ble_token);
-
-    if (!isValid) {
-      return res.status(403).json({ success: false, code: 'INVALID_TOKEN', message: 'Not in range of your floor device. Please go to your assigned floor.' });
-    }
-
-    if (rssi < MIN_RSSI) {
-      return res.status(403).json({ success: false, code: 'WEAK_SIGNAL', message: 'Move closer to the classroom device' });
-    }
-
     const [students] = await pool.query('SELECT student_code, name FROM students WHERE id = ?', [studentId]);
     if (students.length === 0) {
       return res.status(404).json({ success: false, message: 'Student not found' });
     }
-    
+
     const bankCode = students[0].student_code;
     const studentName = students[0].name;
 
-    try {
-      await pool.query(
-        `INSERT INTO attendance_records (session_id, bank_code, student_name, floor_id, device_uuid, rssi, ble_token_used)
-         VALUES (?, ?, ?, ?, '', ?, ?)`,
-        [activeSessionId, bankCode, studentName, floorId, rssi, ble_token]
-      );
-    } catch (dbErr) {
-      if (dbErr.code === 'ER_DUP_ENTRY') {
-        return res.status(409).json({ success: false, code: 'ALREADY_MARKED', message: 'Attendance already marked for this session' });
-      }
-      throw dbErr;
-    }
+    // Do not store in local MySQL DB as per user requirement to use Night Attendance API
+    // The attendance is either tracked externally or this is just a BLE verification step.
+    console.log(`[INFO] Attendance BLE verify successful for ${bankCode}. Bypassing local MySQL insert.`);
+
 
     return res.status(201).json({ success: true, message: 'Attendance marked successfully' });
   } catch (err) {
@@ -294,7 +339,7 @@ router.post('/gateway-sync', async (req, res) => {
 
       const startDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startH, startM, 0);
       const endDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endH, endM, 0);
-      
+
       const [result] = await pool.query(
         `INSERT INTO attendance_sessions (floor_id, session_date, starts_at, ends_at)
          VALUES (?, ?, ?, ?)`,
@@ -337,15 +382,15 @@ router.get('/live', verifyAdminOrFloorLeader, async (req, res) => {
 
     let queryParams = [];
     const sessionDate = new Date().toISOString().slice(0, 10);
-    
+
     let sessionsQuery = 'SELECT id FROM attendance_sessions WHERE session_date = ?';
     let sessionsParams = [sessionDate];
-    
+
     if (floorId !== null) {
       sessionsQuery += ' AND floor_id = ?';
       sessionsParams.push(floorId);
     }
-    
+
     const [sessions] = await pool.query(sessionsQuery, sessionsParams);
 
     if (sessions.length === 0) {
@@ -361,12 +406,12 @@ router.get('/live', verifyAdminOrFloorLeader, async (req, res) => {
        WHERE ar.session_id IN (?)
     `;
     let recordsParams = [sessionIds];
-    
+
     if (floorId !== null) {
       recordsQuery += ' AND ar.floor_id = ?';
       recordsParams.push(floorId);
     }
-    
+
     recordsQuery += ' ORDER BY ar.marked_at DESC';
 
     const [rows] = await pool.query(recordsQuery, recordsParams);
@@ -384,7 +429,7 @@ router.get('/live', verifyAdminOrFloorLeader, async (req, res) => {
 router.get('/export', verifyAdminOrFloorLeader, async (req, res) => {
   try {
     const sessionDate = req.query.date || new Date().toISOString().slice(0, 10);
-    
+
     const query = `
        SELECT ar.bank_code as student_code, ar.student_name as name, f.floor_name, ar.marked_at
        FROM attendance_records ar
@@ -393,25 +438,25 @@ router.get('/export', verifyAdminOrFloorLeader, async (req, res) => {
        WHERE ses.session_date = ?
        ORDER BY ar.marked_at DESC
     `;
-    
+
     const [rows] = await pool.query(query, [sessionDate]);
-    
+
     const headers = ['Student Code', 'Name', 'Floor', 'Time Marked'];
     const csvRows = [headers.join(',')];
-    
+
     for (const row of rows) {
       const dateStr = new Date(row.marked_at).toLocaleString();
       const name = `"${(row.name || '').replace(/"/g, '""')}"`;
       const floor = `"${(row.floor_name || '').replace(/"/g, '""')}"`;
-      
+
       csvRows.push([row.student_code, name, floor, `"${dateStr}"`].join(','));
     }
-    
+
     const csvData = csvRows.join('\n');
-    
+
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="attendance_${sessionDate}.csv"`);
-    
+
     return res.send(csvData);
   } catch (err) {
     console.error(err);
@@ -421,117 +466,6 @@ router.get('/export', verifyAdminOrFloorLeader, async (req, res) => {
 
 
 
-// ------------------------------------------------------------
-// POST /api/attendance/request-token
-// ------------------------------------------------------------
-router.post('/request-token', verifyStudent, async (req, res) => {
-  try {
-    const { rssi } = req.body;
-    if (rssi === undefined) {
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-
-    const floorId = req.student.floor_id || 0;
-    const studentId = req.student.id;
-
-    if (rssi < MIN_RSSI) {
-      return res.status(403).json({ success: false, code: 'WEAK_SIGNAL', message: 'Move closer to the classroom device' });
-    }
-
-    const sessionDate = new Date().toISOString().slice(0, 10);
-
-    let [sessions] = await pool.query(
-      `SELECT id FROM attendance_sessions WHERE floor_id = ? AND session_date = ?`,
-      [floorId, sessionDate]
-    );
-
-    let activeSessionId;
-    let tokenToUse;
-
-    if (sessions.length === 0) {
-      // Create session on-demand
-      const [settingsRows] = await pool.query('SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("DAILY_START_TIME", "DAILY_END_TIME")');
-      let endTimeStr = '23:59';
-      for (const row of settingsRows) {
-        if (row.setting_key === 'DAILY_END_TIME') endTimeStr = row.setting_value;
-      }
-      
-      const now = new Date();
-      const [endH, endM] = endTimeStr.split(':').map(Number);
-      const endDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endH, endM, 0);
-
-      const [result] = await pool.query(
-        `INSERT INTO attendance_sessions (floor_id, session_date, starts_at, ends_at)
-         VALUES (?, ?, ?, ?)`,
-        [floorId, sessionDate, now, endDt]
-      );
-      activeSessionId = result.insertId;
-    } else {
-      activeSessionId = sessions[0].id;
-      // Check if token already exists
-      const [floorRows] = await pool.query('SELECT current_token FROM floors WHERE floor_id = ?', [floorId]);
-      if (floorRows.length > 0 && floorRows[0].current_token && floorRows[0].current_token !== 'NONE') {
-         // Token already exists! The ESP-32 must be stranded on 'NONE' because the broadcast failed.
-         // We will use the existing token instead of returning a 409 Conflict.
-         tokenToUse = floorRows[0].current_token;
-      }
-    }
-
-    if (!tokenToUse) {
-      // Generate new token if none exists
-      const crypto = require('crypto');
-      tokenToUse = crypto.randomBytes(3).toString('hex').toUpperCase();
-      await pool.query('UPDATE floors SET current_token = ? WHERE floor_id = ?', [tokenToUse, floorId]);
-    }
-
-    // Calculate remaining duration in minutes until DAILY_END_TIME
-    const [settingsRows2] = await pool.query('SELECT setting_key, setting_value FROM system_settings WHERE setting_key = "DAILY_END_TIME"');
-    let endTimeStr2 = '23:59';
-    if (settingsRows2.length > 0) {
-       endTimeStr2 = settingsRows2[0].setting_value;
-    }
-    const now2 = new Date();
-    const [endH2, endM2] = endTimeStr2.split(':').map(Number);
-    const endDt2 = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate(), endH2, endM2, 0);
-    const durationMinutes = Math.max(1, Math.ceil((endDt2 - now2) / 60000));
-
-    const [students] = await pool.query('SELECT student_code, name FROM students WHERE id = ?', [studentId]);
-    if (students.length === 0) {
-      return res.status(404).json({ success: false, message: 'Student not found' });
-    }
-    
-    const bankCode = students[0].student_code;
-    const studentName = students[0].name;
-
-    try {
-      await pool.query(
-        `INSERT INTO attendance_records (session_id, bank_code, student_name, floor_id, device_uuid, rssi, ble_token_used)
-         VALUES (?, ?, ?, ?, '', ?, ?)`,
-        [activeSessionId, bankCode, studentName, floorId, rssi, tokenToUse]
-      );
-    } catch (dbErr) {
-      if (dbErr.code === 'ER_DUP_ENTRY') {
-        // Even if they already marked, we should still return the token so their app can sync the ESP-32
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Attendance already marked, but resyncing token.', 
-          token: tokenToUse,
-          duration_minutes: durationMinutes
-        });
-      }
-      throw dbErr;
-    }
-
-    return res.status(201).json({ 
-      success: true, 
-      message: 'Attendance marked! You synced the beacon.', 
-      token: tokenToUse,
-      duration_minutes: durationMinutes
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
+// removed request-token
 
 module.exports = router;

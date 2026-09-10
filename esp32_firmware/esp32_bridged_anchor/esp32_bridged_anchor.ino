@@ -25,25 +25,12 @@ BLEAdvertising *pAdvertising;
 BLEServer *pServer;
 BLECharacteristic *pCharacteristic;
 
-// Function to update BLE Advertisement
 void updateBLEAdvertisement(const char* token) {
-    pAdvertising->stop();
-    
-    BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
-    oAdvertisementData.setFlags(0x04); // BR_EDR_NOT_SUPPORTED
-    
-    // Create Service Data payload: "floorId:token"
-    String payload = String(MY_FLOOR_ID) + ":" + String(token);
-    
-    // Add to Service Data
-    oAdvertisementData.setServiceData(targetServiceUUID, payload);
-    oAdvertisementData.setName(DEVICE_NAME);
-    
-    pAdvertising->setAdvertisementData(oAdvertisementData);
-    pAdvertising->start();
-    
-    Serial.print("Now Advertising: ");
-    Serial.println(payload);
+    // The Flutter App reads the token via a direct GATT connection (characteristic read).
+    // Therefore, we don't need to bloat the BLE advertisement packet with the token!
+    // This fixes the 31-byte Android BLE limit crash permanently.
+    Serial.print("Token is now set to: ");
+    Serial.println(token);
 }
 
 // Callback for when the Flutter App connects and writes to the ESP-32
@@ -124,9 +111,14 @@ void setup() {
   
   // Setup Advertising
   pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
   
-  // Initial Advertisement ("0:NONE")
+  BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
+  oAdvertisementData.setFlags(0x04); // BR_EDR_NOT_SUPPORTED
+  oAdvertisementData.setName("ESP32");
+  pAdvertising->setAdvertisementData(oAdvertisementData);
+  
+  pAdvertising->start();
+  
   updateBLEAdvertisement(currentToken);
   
   Serial.println("BLE Bridged Anchor Started (GATT Server + Advertiser).");

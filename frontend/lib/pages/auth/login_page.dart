@@ -241,9 +241,10 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                             gradient: AppColors.accentGradient,
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.accent.withValues(alpha: 0.5),
-                                blurRadius: 40,
-                                spreadRadius: 5,
+                                color: AppColors.accent.withValues(alpha: 0.2),
+                                blurRadius: 20,
+                                spreadRadius: 2,
+                                offset: const Offset(0, 8),
                               ),
                             ],
                           ),

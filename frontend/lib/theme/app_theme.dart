@@ -6,10 +6,10 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       scaffoldBackgroundColor: AppColors.backgroundPrimary,
       primaryColor: AppColors.primary,
-      colorScheme: const ColorScheme.dark(
+      colorScheme: const ColorScheme.light(
         primary: AppColors.primary,
         secondary: AppColors.accent,
         surface: AppColors.surface,
@@ -17,7 +17,7 @@ class AppTheme {
         onSurface: AppColors.textPrimary,
         onPrimary: Colors.white,
       ),
-      textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).apply(
+      textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme).apply(
         bodyColor: AppColors.textPrimary,
         displayColor: AppColors.textPrimary,
       ),
@@ -35,24 +35,24 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.glassWhite,
+        color: AppColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: AppColors.glassBorder, width: 1),
+          side: const BorderSide(color: AppColors.border, width: 1),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.glassWhite,
+        fillColor: AppColors.surface,
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: AppColors.glassBorder),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: AppColors.glassBorder),
+          borderSide: const BorderSide(color: AppColors.border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -79,21 +79,24 @@ class AppTheme {
         ),
       ),
       dividerTheme: const DividerThemeData(
-        color: AppColors.glassBorder,
+        color: AppColors.border,
         thickness: 1,
       ),
       iconTheme: const IconThemeData(
         color: AppColors.textSecondary,
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surface,
-        contentTextStyle: const TextStyle(color: AppColors.textPrimary),
+        backgroundColor: AppColors.textPrimary, // Dark background for snackbars in light theme
+        contentTextStyle: const TextStyle(color: Colors.white),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.backgroundSecondary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: AppColors.border, width: 1),
+        ),
         titleTextStyle: const TextStyle(
           color: AppColors.textPrimary,
           fontSize: 20,
