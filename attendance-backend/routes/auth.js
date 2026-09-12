@@ -301,36 +301,9 @@ router.post('/login', async (req, res) => {
       student = localStudents[0];
     }
     
-    // --- SIM BINDING LOGIC ---
-    if (!student.assigned_mobile) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Mobile number not assigned. Please contact your floor leader to assign your mobile number.' 
-      });
-    }
-
-    const assignedMobile = String(student.assigned_mobile);
-    const normalizedAssigned = assignedMobile.slice(-10);
-    
-    let simVerified = false;
-    if (Array.isArray(simNumbers)) {
-      for (const sim of simNumbers) {
-        if (!sim) continue;
-        const normalizedSim = String(sim).replace(/[^0-9]/g, '').slice(-10);
-        if (normalizedSim === normalizedAssigned) {
-          simVerified = true;
-          break;
-        }
-      }
-    }
-    
-    if (!simVerified) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'SIM Verification Failed: Your assigned mobile number is not present in this device.' 
-      });
-    }
-    // --- END SIM BINDING LOGIC ---
+    // --- SIM BINDING LOGIC REMOVED ---
+    // Students can now login using just their bank code without mobile number validation
+    // ---------------------------------
 
     // Issue JWT Token
     const token = jwt.sign(
@@ -466,3 +439,4 @@ router.post('/auto-login', async (req, res) => {
 });
 
 module.exports = router;
+
