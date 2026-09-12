@@ -51,10 +51,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _initApp() async {
-    final hasSimPermission = await _requestPermissions();
-    if (hasSimPermission) {
-      await _attemptAutoLogin();
-    }
+    await _requestPermissions();
   }
 
   Future<bool> _requestPermissions() async {
@@ -84,62 +81,21 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     }
   }
 
-  Future<void> _attemptAutoLogin() async {
-    if (kIsWeb) return;
-    
-    try {
-      final sims = await MobileNumber.getSimCards;
-      if (sims == null || sims.isEmpty) return;
-      
-      List<String> simNumbers = sims
-          .where((s) => s.number != null && s.number!.isNotEmpty)
-          .map((s) => s.number!)
-          .toList();
-          
-      if (simNumbers.isEmpty) return;
-      
-      setState(() => _isLoading = true);
-      
-      final response = await ApiClient().dio.post('/auth/auto-login', data: {
-        'sim_numbers': simNumbers,
-      });
-      
-      if (response.data['success']) {
-        final data = response.data['data'];
-        final token = data['token'];
-        final user = data['user'];
-        final role = user['role'];
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('token', token);
-        await prefs.setString('role', role);
-        
-        await prefs.setString('student_name', user['name'] ?? '');
-        await prefs.setInt('student_floor_id', user['floor_id'] ?? 0);
-        await prefs.setString('student_room', user['room']?.toString() ?? '');
-        await prefs.setString('student_phone', user['phone']?.toString() ?? '');
-        await prefs.setString('student_email', user['email']?.toString() ?? '');
-        
-        if (!mounted) return;
-        
-        FcmService().init();
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const StudentDashboardPage()),
-        );
-      }
-    } catch (e) {
-      debugPrint("Auto-login failed: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
+
 
   Future<void> _login() async {
-    final bankCode = _bankCodeController.text.trim();
+    String bankCode = _bankCodeController.text.trim();
     if (bankCode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your Bank Code.')),
       );
       return;
+    }
+    
+    try {
+      bankCode = int.parse(bankCode).toString();
+    } catch (e) {
+      // In case it's not a pure number, leave it as is
     }
 
     setState(() => _isLoading = true);

@@ -3,7 +3,6 @@
 #include <BLEServer.h>
 #include <BLEAdvertising.h>
 
-const int MY_FLOOR_ID = 9; // Changed to 9 for testing
 const char* DEVICE_NAME = "Hostel_Floor_Beacon";
 
 // Match the exact UUIDs from your Flutter App!
@@ -114,7 +113,7 @@ void setup() {
   
   BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
   oAdvertisementData.setFlags(0x04); // BR_EDR_NOT_SUPPORTED
-  oAdvertisementData.setName("ESP32");
+  oAdvertisementData.setName(DEVICE_NAME);
   pAdvertising->setAdvertisementData(oAdvertisementData);
   
   pAdvertising->start();
@@ -144,3 +143,4 @@ void loop() {
 
   delay(1000); 
 }
+

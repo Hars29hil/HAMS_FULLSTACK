@@ -224,10 +224,6 @@ router.post('/mark', verifyStudent, async (req, res) => {
     const proofFloorId = parseInt(proofParts[1], 10);
     const proofTimestamp = parseInt(proofParts[3], 10);
 
-    if (proofFloorId !== floorId) {
-      return res.status(403).json({ success: false, code: 'INVALID_FLOOR', message: 'You are not connected to your assigned floor device' });
-    }
-
     const currentTimestamp = Math.floor(Date.now() / 1000);
     if (Math.abs(currentTimestamp - proofTimestamp) > 60) {
       return res.status(403).json({ success: false, code: 'EXPIRED_PROOF', message: 'Proof expired. Please try again.' });
@@ -264,9 +260,21 @@ router.post('/mark', verifyStudent, async (req, res) => {
     const bankCode = students[0].student_code;
     const studentName = students[0].name;
 
-    // Do not store in local MySQL DB as per user requirement to use Night Attendance API
-    // The attendance is either tracked externally or this is just a BLE verification step.
-    console.log(`[INFO] Attendance BLE verify successful for ${bankCode}. Bypassing local MySQL insert.`);
+    try {
+      await pool.query(
+        `INSERT INTO attendance_records (session_id, bank_code, student_name, floor_id, device_uuid, rssi, ble_token_used)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [activeSessionId, bankCode, studentName, proofFloorId, 'BLE_APP', rssi, decryptedProof]
+      );
+    } catch (dbErr) {
+      if (dbErr.code === 'ER_DUP_ENTRY') {
+        // Ignored, they already marked
+      } else {
+        throw dbErr;
+      }
+    }
+
+    console.log(`[INFO] Attendance BLE verify successful for ${bankCode}. Stored in local DB.`);
 
 
     return res.status(201).json({ success: true, message: 'Attendance marked successfully' });
