@@ -134,9 +134,9 @@ router.post('/', async (req, res) => {
     const finalPhone = phone_number || student_code;
 
     await pool.query(
-      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
-      [student_code, name, finalPhone, dummyHash, finalFloorId]
+      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, is_active, assigned_mobile)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`,
+      [student_code, name, finalPhone, dummyHash, finalFloorId, finalPhone]
     );
     return res.json({ success: true, message: 'Student added successfully' });
   } catch (err) {

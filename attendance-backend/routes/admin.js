@@ -280,4 +280,94 @@ router.post('/esp32/unassign', async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------
+// GET /api/admin/sessions
+// ------------------------------------------------------------
+router.get('/sessions', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM attendance_schedules WHERE is_active = TRUE ORDER BY id ASC');
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ------------------------------------------------------------
+// POST /api/admin/sessions
+// ------------------------------------------------------------
+router.post('/sessions', async (req, res) => {
+  try {
+    const { session_name, icon_name } = req.body;
+    if (!session_name || !icon_name) {
+      return res.status(400).json({ success: false, message: 'Missing session_name or icon_name' });
+    }
+    const session_key = session_name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    
+    await pool.query(
+      'INSERT INTO attendance_schedules (session_key, session_name, icon_name, start_time, end_time) VALUES (?, ?, ?, ?, ?)',
+      [session_key, session_name, icon_name, '00:00', '00:00']
+    );
+    
+    return res.json({ success: true, message: 'Session added successfully' });
+  } catch (err) {
+    console.error(err);
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ success: false, message: 'A session with this name already exists' });
+    }
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ------------------------------------------------------------
+// ------------------------------------------------------------
+// GET /api/admin/reports
+// ------------------------------------------------------------
+router.get('/reports', async (req, res) => {
+  try {
+    // 1. Get total counts per session type
+    const [sessionCounts] = await pool.query(`
+      SELECT session_type, COUNT(id) as total
+      FROM attendance_sessions
+      GROUP BY session_type
+    `);
+    
+    const totals = {};
+    sessionCounts.forEach(s => {
+      if(s.session_type) totals[s.session_type] = s.total;
+    });
+
+    // 2. Get attendance counts per student per session type
+    const [attendance] = await pool.query(`
+      SELECT ar.bank_code, s.session_type, COUNT(*) as attended
+      FROM attendance_records ar
+      JOIN attendance_sessions s ON ar.session_id = s.id
+      GROUP BY ar.bank_code, s.session_type
+    `);
+
+    const studentRecords = {};
+    attendance.forEach(a => {
+      if (!studentRecords[a.bank_code]) {
+        studentRecords[a.bank_code] = {};
+      }
+      if(a.session_type) studentRecords[a.bank_code][a.session_type] = a.attended;
+    });
+
+    return res.json({ success: true, totals, studentRecords });
+  } catch (err) {
+    console.error('Reports Error:', err);
+    return res.status(500).json({ success: false, message: err.toString() });
+  }
+});
+
+router.get('/debug-reports', async (req, res) => {
+  try {
+    const [res1] = await pool.query('DESCRIBE attendance_records');
+    const [res2] = await pool.query('DESCRIBE attendance_sessions');
+    return res.json({ success: true, records: res1, sessions: res2 });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.toString() });
+  }
+});
+
 module.exports = router;

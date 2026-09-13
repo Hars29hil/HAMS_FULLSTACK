@@ -6,7 +6,10 @@ import '../auth/login_page.dart';
 import 'dashboard_page.dart';
 
 import 'students_page.dart';
+import 'student_attendance_page.dart';
 import 'live_attendance_page.dart';
+import 'add_attendance_page.dart';
+import '../../services/api_client.dart';
 
 class MainAdminPage extends StatefulWidget {
   const MainAdminPage({super.key});
@@ -19,6 +22,7 @@ class _MainAdminPageState extends State<MainAdminPage> {
   int _currentIndex = 0;
   String? _role;
   bool _isLoading = true;
+  List<dynamic> _dynamicSessions = [];
 
   @override
   void initState() {
@@ -28,11 +32,34 @@ class _MainAdminPageState extends State<MainAdminPage> {
 
   Future<void> _loadRole() async {
     final prefs = await SharedPreferences.getInstance();
+    _role = prefs.getString('role');
+    if (_role != 'LEADER') {
+      try {
+        final res = await ApiClient().dio.get('/admin/sessions');
+        if (res.data['success']) {
+          _dynamicSessions = res.data['data'];
+        }
+      } catch (e) {
+        debugPrint('Error loading sessions: $e');
+      }
+    }
     if (mounted) {
       setState(() {
-        _role = prefs.getString('role');
         _isLoading = false;
       });
+    }
+  }
+
+  IconData _getIcon(String name) {
+    switch (name) {
+      case 'moon': return LucideIcons.moon;
+      case 'sun': return LucideIcons.sun;
+      case 'users': return LucideIcons.users;
+      case 'code': return LucideIcons.code;
+      case 'book': return LucideIcons.book;
+      case 'coffee': return LucideIcons.coffee;
+      case 'activity': return LucideIcons.activity;
+      default: return LucideIcons.calendar;
     }
   }
 
@@ -43,12 +70,22 @@ class _MainAdminPageState extends State<MainAdminPage> {
         const Center(child: Text('Notifications Page (Coming Soon)')),
       ];
     }
-    return [
+    List<Widget> p = [
       const DashboardPage(),
       const StudentsPage(),
-      const LiveAttendancePage(),
-      const Center(child: Text('Notifications Page (Coming Soon)')),
+      const StudentAttendancePage(),
     ];
+    for (var s in _dynamicSessions) {
+      p.add(LiveAttendancePage(sessionType: s['session_key'].toUpperCase()));
+    }
+    p.addAll([
+      AddAttendancePage(onAdded: () {
+        setState(() => _isLoading = true);
+        _loadRole();
+      }),
+      const Center(child: Text('Notifications Page (Coming Soon)')),
+    ]);
+    return p;
   }
 
   List<String> get _titles {
@@ -58,12 +95,19 @@ class _MainAdminPageState extends State<MainAdminPage> {
         'Notifications',
       ];
     }
-    return [
+    List<String> t = [
       'Dashboard',
       'Student Management',
-      'Live Attendance',
-      'Notifications',
+      'Student Attendance',
     ];
+    for (var s in _dynamicSessions) {
+      t.add(s['session_name']);
+    }
+    t.addAll([
+      '+ Add Attendance',
+      'Notifications',
+    ]);
+    return t;
   }
 
   List<IconData> get _icons {
@@ -73,12 +117,19 @@ class _MainAdminPageState extends State<MainAdminPage> {
         LucideIcons.bell,
       ];
     }
-    return [
+    List<IconData> i = [
       LucideIcons.layoutDashboard,
       LucideIcons.users,
-      LucideIcons.clipboardCheck,
-      LucideIcons.bell,
+      LucideIcons.barChart,
     ];
+    for (var s in _dynamicSessions) {
+      i.add(_getIcon(s['icon_name']));
+    }
+    i.addAll([
+      LucideIcons.plusCircle,
+      LucideIcons.bell,
+    ]);
+    return i;
   }
 
   Future<void> _handleLogout() async {

@@ -14,11 +14,10 @@ async function verifyStudent(req, res, next) {
     }
     
     // Check if the student still has an assigned_mobile in the DB
-    // (Disabled: Mobile number validation is no longer required)
-    // const [rows] = await pool.query('SELECT assigned_mobile FROM students WHERE id = ?', [decoded.id]);
-    // if (rows.length === 0 || !rows[0].assigned_mobile) {
-    //   return res.status(401).json({ success: false, message: 'Session invalid. Device binding removed.' });
-    // }
+    const [rows] = await pool.query('SELECT assigned_mobile FROM students WHERE id = ?', [decoded.id]);
+    if (rows.length === 0 || !rows[0].assigned_mobile) {
+      return res.status(401).json({ success: false, message: 'Session invalid. Device binding removed.' });
+    }
     
     req.student = decoded; // { id, student_code, floor_id, role }
     next();

@@ -1,1 +1,7 @@
-module.exports.getCurrentIST = function() { const now = new Date(); const utc = now.getTime() + (now.getTimezoneOffset() * 60000); return new Date(utc + (330 * 60000)); };
+module.exports.getCurrentIST = function() { 
+  const utcMillis = Date.now();
+  // IST is UTC + 5:30
+  const istMillis = utcMillis + (330 * 60000);
+  // Return a Date object where the UTC methods (getUTCHours, etc) return IST values
+  return new Date(istMillis);
+};

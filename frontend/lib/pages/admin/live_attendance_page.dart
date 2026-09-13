@@ -7,7 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LiveAttendancePage extends StatefulWidget {
-  const LiveAttendancePage({super.key});
+  final String sessionType;
+  const LiveAttendancePage({super.key, this.sessionType = 'NIGHT'});
 
   @override
   State<LiveAttendancePage> createState() => _LiveAttendancePageState();
@@ -28,7 +29,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
   Future<void> _fetchSchedule() async {
     setState(() => _isLoading = true);
     try {
-      final res = await ApiClient().dio.get('/attendance/schedule');
+      final res = await ApiClient().dio.get('/attendance/schedule?type=${widget.sessionType}');
       if (res.data['success']) {
         final stStr = res.data['data']['start_time'] as String;
         final etStr = res.data['data']['end_time'] as String;
@@ -59,6 +60,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
       final res = await ApiClient().dio.put('/attendance/schedule', data: {
         'startTime': startStr,
         'endTime': endStr,
+        'type': widget.sessionType,
       });
 
       if (res.data['success']) {

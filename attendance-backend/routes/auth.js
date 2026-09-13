@@ -32,9 +32,9 @@ router.post('/student/register', async (req, res) => {
     const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
 
     const [result] = await pool.query(
-      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, device_uuid)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [student_code, name, phone_number, password_hash, floor_id, device_uuid]
+      `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, device_uuid, assigned_mobile)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [student_code, name, phone_number, password_hash, floor_id, device_uuid, phone_number]
     );
 
     const token = jwt.sign(
@@ -284,9 +284,9 @@ router.post('/login', async (req, res) => {
       const dummyHash = '$2b$10$DKYfBMxGt00SY4/kwh1yeeGZChSF6/9uvosxdWV63dJe.AUQPPME6'; // dummy 'password123'
       
       const [insertResult] = await pool.query(
-        `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, device_uuid)
-         VALUES (?, ?, ?, ?, ?, NULL)`,
-        [canonicalUsername, fullName, phone, dummyHash, floorId]
+        `INSERT INTO students (student_code, name, phone_number, password_hash, floor_id, device_uuid, assigned_mobile)
+         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+        [canonicalUsername, fullName, phone, dummyHash, floorId, phone]
       );
       
       student = {
@@ -295,7 +295,7 @@ router.post('/login', async (req, res) => {
         name: fullName,
         floor_id: floorId,
         device_uuid: null,
-        assigned_mobile: null
+        assigned_mobile: phone
       };
     } else {
       student = localStudents[0];

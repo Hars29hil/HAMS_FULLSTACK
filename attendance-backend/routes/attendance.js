@@ -4,6 +4,7 @@ const pool = require('../config/db');
 const { verifyStudent, verifyFloorLeader, verifyAdminOrFloorLeader } = require('../middleware/auth');
 const admin = require('../config/firebase');
 const crypto = require('crypto');
+const { getCurrentIST } = require('../utils/time');
 
 const SECRET_KEY = process.env.AES_SECRET_KEY || 'HAMS_SECRET_KEY!'; // Must be 16 bytes for AES-128
 
@@ -18,49 +19,89 @@ router.get('/my-status', verifyStudent, async (req, res) => {
     const studentId = req.student.id;
     const floorId = req.student.floor_id || 0; // Default to 0 if undefined to prevent mysql2 crash
 
-    // Fetch global schedule
-    const [settingsRows] = await pool.query(
-      'SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("DAILY_START_TIME", "DAILY_END_TIME")'
+    // Fetch all schedules from dynamic table
+    const [scheduleRows] = await pool.query(
+      'SELECT session_key, start_time, end_time FROM attendance_schedules WHERE is_active = TRUE'
     );
-    let startTimeStr = '21:00';
-    let endTimeStr = '21:30';
-    for (const row of settingsRows) {
-      if (row.setting_key === 'DAILY_START_TIME') startTimeStr = row.setting_value;
-      if (row.setting_key === 'DAILY_END_TIME') endTimeStr = row.setting_value;
+    
+    const schedules = {};
+    for (const row of scheduleRows) {
+      schedules[row.session_key] = { start: row.start_time, end: row.end_time };
+    }
+    
+    const now = getCurrentIST();
+    const sessionDate = now.toISOString().slice(0, 10);
+    let activeSessionType = null;
+    let startTimeStr = '00:00';
+    let endTimeStr = '00:00';
+    
+    for (const [type, times] of Object.entries(schedules)) {
+      const [startH, startM] = times.start.split(':').map(Number);
+      const [endH, endM] = times.end.split(':').map(Number);
+      const startDt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), startH, startM, 0));
+      const endDt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), endH, endM, 0));
+      
+      if (startDt.getTime() > endDt.getTime()) {
+        // Overnight shift (e.g., 21:00 to 06:00)
+        // It's active if now is AFTER startDt OR BEFORE endDt
+        if (now >= startDt || now <= endDt) {
+          activeSessionType = type;
+          startTimeStr = times.start;
+          endTimeStr = times.end;
+          break;
+        }
+      } else {
+        // Normal shift (e.g., 07:00 to 08:00)
+        if (now >= startDt && now <= endDt) {
+          activeSessionType = type;
+          startTimeStr = times.start;
+          endTimeStr = times.end;
+          break;
+        }
+      }
     }
 
-    const now = new Date();
-    const [startH, startM] = startTimeStr.split(':').map(Number);
-    const [endH, endM] = endTimeStr.split(':').map(Number);
-    const startDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startH, startM, 0);
-    const endDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endH, endM, 0);
-    const attendanceActive = now >= startDt && now <= endDt;
-
-    const sessionDate = now.toISOString().slice(0, 10);
+    const attendanceActive = activeSessionType !== null;
     let alreadyMarked = false;
+    let bankCode = null;
 
-    // Fetch from Night Attendance API
-    const https = require('https');
-    const apiData = await new Promise((resolve, reject) => {
-      https.get(`https://api.avdvvn.org/public/getAttendance?date=${sessionDate}&type=night`, {
-        headers: { 'x-hsh-auth-token': 'aF92Kx7QmN4Lp8Vz' }
-      }, (response) => {
-        let data = '';
-        response.on('data', chunk => data += chunk);
-        response.on('end', () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            reject(e);
+    const [studentRows] = await pool.query('SELECT student_code FROM students WHERE id = ?', [studentId]);
+    if (studentRows.length > 0) {
+      bankCode = studentRows[0].student_code;
+      
+      if (attendanceActive) {
+        // 1. Check local database first
+        const [sessions] = await pool.query('SELECT id FROM attendance_sessions WHERE session_date = ? AND session_type = ?', [sessionDate, activeSessionType]);
+        if (sessions.length > 0) {
+          const sessionIds = sessions.map(s => s.id);
+          const [localRecords] = await pool.query('SELECT session_id FROM attendance_records WHERE session_id IN (?) AND bank_code = ?', [sessionIds, bankCode]);
+          if (localRecords.length > 0) {
+            alreadyMarked = true;
           }
-        });
-      }).on('error', reject);
-    });
+        }
+      }
+    }
 
-    if (apiData && apiData.auth && apiData.data) {
-      const [studentRows] = await pool.query('SELECT student_code FROM students WHERE id = ?', [studentId]);
-      if (studentRows.length > 0) {
-        const bankCode = studentRows[0].student_code;
+    // 2. Fetch from Night Attendance API as fallback (only for night)
+    if (!alreadyMarked && bankCode && attendanceActive && activeSessionType === 'night') {
+      const https = require('https');
+      const apiData = await new Promise((resolve, reject) => {
+        https.get(`https://api.avdvvn.org/public/getAttendance?date=${sessionDate}&type=night`, {
+          headers: { 'x-hsh-auth-token': 'aF92Kx7QmN4Lp8Vz' }
+        }, (response) => {
+          let data = '';
+          response.on('data', chunk => data += chunk);
+          response.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }).on('error', reject);
+      });
+
+      if (apiData && apiData.auth && apiData.data) {
         const match = apiData.data.find(s => String(s.bankCode).replace(/^0+(?=\d)/, '') === String(bankCode).replace(/^0+(?=\d)/, ''));
         if (match) {
           alreadyMarked = true;
@@ -74,7 +115,9 @@ router.get('/my-status', verifyStudent, async (req, res) => {
         already_marked: alreadyMarked,
         start_time: startTimeStr,
         end_time: endTimeStr,
-        attendance_active: attendanceActive
+        attendance_active: attendanceActive,
+        active_session_type: activeSessionType,
+        schedules: schedules
       }
     });
   } catch (err) {
@@ -88,13 +131,23 @@ router.get('/my-status', verifyStudent, async (req, res) => {
 // ------------------------------------------------------------
 router.get('/schedule', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("DAILY_START_TIME", "DAILY_END_TIME")');
-    const schedule = { start_time: '00:00', end_time: '23:59' };
-    for (const row of rows) {
-      if (row.setting_key === 'DAILY_START_TIME') schedule.start_time = row.setting_value;
-      if (row.setting_key === 'DAILY_END_TIME') schedule.end_time = row.setting_value;
+    const type = (req.query.type || 'night').toLowerCase();
+    const [rows] = await pool.query('SELECT start_time, end_time FROM attendance_schedules WHERE session_key = ?', [type]);
+    let startTimeStr = '00:00';
+    let endTimeStr = '00:00';
+
+    if (rows.length > 0) {
+      startTimeStr = rows[0].start_time;
+      endTimeStr = rows[0].end_time;
     }
-    return res.json({ success: true, data: schedule });
+
+    return res.json({
+      success: true,
+      data: {
+        start_time: startTimeStr,
+        end_time: endTimeStr
+      }
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -106,15 +159,19 @@ router.get('/schedule', async (req, res) => {
 // ------------------------------------------------------------
 router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
   try {
-    const { startTime, endTime } = req.body;
+    const { startTime, endTime, type } = req.body;
+    const sessionType = (type || 'night').toLowerCase();
+
     if (!startTime || !endTime) {
       return res.status(400).json({ success: false, message: 'Missing startTime or endTime' });
     }
 
-    await pool.query('UPDATE system_settings SET setting_value = ? WHERE setting_key = "DAILY_START_TIME"', [startTime]);
-    await pool.query('UPDATE system_settings SET setting_value = ? WHERE setting_key = "DAILY_END_TIME"', [endTime]);
+    await pool.query(
+      'UPDATE attendance_schedules SET start_time = ?, end_time = ? WHERE session_key = ?',
+      [startTime, endTime, sessionType]
+    );
 
-    const now = new Date();
+    const now = getCurrentIST();
     const [startH, startM] = startTime.split(':').map(Number);
     const [endH, endM] = endTime.split(':').map(Number);
 
@@ -126,8 +183,8 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
         if (tokens.length > 0) {
           const message = {
             notification: {
-              title: 'Attendance Update ⏰',
-              body: `The attendance window has been scheduled from ${startTime} to ${endTime}.`,
+              title: `${sessionType} Attendance Update ⏰`,
+              body: `The ${sessionType.toLowerCase()} attendance window has been scheduled from ${startTime} to ${endTime}.`,
             },
             tokens: tokens,
           };
@@ -141,7 +198,7 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
       }
     }
 
-    return res.json({ success: true, message: 'Daily schedule updated successfully' });
+    return res.json({ success: true, message: `${sessionType} schedule updated successfully` });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -149,25 +206,42 @@ router.put('/schedule', verifyAdminOrFloorLeader, async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// POST /api/attendance/challenge
-// Generate AES encrypted challenge for the student's floor
+// GET /api/attendance/debug-reports
 // ------------------------------------------------------------
-router.post('/challenge', verifyStudent, async (req, res) => {
+router.get('/debug-reports', async (req, res) => {
   try {
-    const floorId = req.student.floor_id || 0;
-    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp in seconds
-    const payload = `SUCCESS_${floorId}_TS_${timestamp}`;
+    const [res1] = await pool.query('DESCRIBE attendance_records');
+    const [res2] = await pool.query('DESCRIBE attendance_sessions');
+    
+    // Test the actual query too
+    let err1 = null;
+    let counts = null;
+    try {
+      const [sessionCounts] = await pool.query(`
+        SELECT session_type, COUNT(id) as total
+        FROM attendance_sessions
+        GROUP BY session_type
+      `);
+      counts = sessionCounts;
+    } catch(e) { err1 = e.toString(); }
 
-    // AES Encryption (ECB mode for simplicity on ESP32, or CBC with fixed IV if preferred. Using ECB here for microcontroller simplicity)
-    const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(SECRET_KEY, 'utf8'), null);
-    cipher.setAutoPadding(true);
-    let encrypted = cipher.update(payload, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
+    return res.json({ success: true, records: res1, sessions: res2, err1, counts });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.toString() });
+  }
+});
 
-    return res.json({ success: true, challenge: encrypted.toUpperCase() });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: 'Server error generating challenge' });
+// ------------------------------------------------------------
+// GET /api/attendance/debug-sql
+// ------------------------------------------------------------
+router.get('/debug-sql', async (req, res) => {
+  try {
+    const query = req.query.q;
+    if (!query) return res.json({ success: false, message: 'No query' });
+    const [rows] = await pool.query(query);
+    return res.json({ success: true, data: rows });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.toString() });
   }
 });
 
@@ -176,57 +250,54 @@ router.post('/challenge', verifyStudent, async (req, res) => {
 // ------------------------------------------------------------
 router.post('/mark', verifyStudent, async (req, res) => {
   try {
-    const { proof, rssi } = req.body;
-    if (!proof || rssi === undefined) {
+    const { rssi } = req.body;
+    if (rssi === undefined) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
 
     const floorId = req.student.floor_id || 0;
     const studentId = req.student.id;
 
-    // Validate global schedule
-    const [settingsRows] = await pool.query('SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ("DAILY_START_TIME", "DAILY_END_TIME")');
-    let startTimeStr = '21:00';
-    let endTimeStr = '21:30';
-    for (const row of settingsRows) {
-      if (row.setting_key === 'DAILY_START_TIME') startTimeStr = row.setting_value;
-      if (row.setting_key === 'DAILY_END_TIME') endTimeStr = row.setting_value;
+    // Fetch all schedules from dynamic table
+    const [scheduleRows] = await pool.query(
+      'SELECT session_key, start_time, end_time FROM attendance_schedules WHERE is_active = TRUE'
+    );
+    
+    const schedules = {};
+    for (const row of scheduleRows) {
+      schedules[row.session_key] = { start: row.start_time, end: row.end_time };
     }
 
-    const now = new Date();
-    const [startH, startM] = startTimeStr.split(':').map(Number);
-    const [endH, endM] = endTimeStr.split(':').map(Number);
-    const startDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startH, startM, 0);
-    const endDt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), endH, endM, 0);
+    const now = getCurrentIST();
+    let activeSessionType = null;
+    let startDt = null;
+    let endDt = null;
+    
+    for (const [type, times] of Object.entries(schedules)) {
+      const [startH, startM] = times.start.split(':').map(Number);
+      const [endH, endM] = times.end.split(':').map(Number);
+      const currentStartDt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), startH, startM, 0));
+      const currentEndDt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), endH, endM, 0));
+      
+      if (currentStartDt.getTime() > currentEndDt.getTime()) {
+        if (now >= currentStartDt || now <= currentEndDt) {
+          activeSessionType = type;
+          startDt = currentStartDt;
+          endDt = currentEndDt;
+          break;
+        }
+      } else {
+        if (now >= currentStartDt && now <= currentEndDt) {
+          activeSessionType = type;
+          startDt = currentStartDt;
+          endDt = currentEndDt;
+          break;
+        }
+      }
+    }
 
-    if (now < startDt || now > endDt) {
+    if (!activeSessionType) {
       return res.status(400).json({ success: false, code: 'NO_ACTIVE_SESSION', message: 'Attendance window is currently closed' });
-    }
-
-    // Decrypt Proof
-    let decryptedProof;
-    try {
-      const decipher = crypto.createDecipheriv('aes-128-ecb', Buffer.from(SECRET_KEY, 'utf8'), null);
-      decipher.setAutoPadding(true);
-      let decrypted = decipher.update(proof, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      decryptedProof = decrypted;
-    } catch (e) {
-      return res.status(403).json({ success: false, code: 'INVALID_PROOF', message: 'Invalid cryptographic proof from device' });
-    }
-
-    // Validate Proof Format (SUCCESS_floorId_TS_timestamp)
-    const proofParts = decryptedProof.split('_');
-    if (proofParts.length !== 4 || proofParts[0] !== 'SUCCESS' || proofParts[2] !== 'TS') {
-      return res.status(403).json({ success: false, code: 'INVALID_PROOF', message: 'Malformed proof from device' });
-    }
-
-    const proofFloorId = parseInt(proofParts[1], 10);
-    const proofTimestamp = parseInt(proofParts[3], 10);
-
-    const currentTimestamp = Math.floor(Date.now() / 1000);
-    if (Math.abs(currentTimestamp - proofTimestamp) > 60) {
-      return res.status(403).json({ success: false, code: 'EXPIRED_PROOF', message: 'Proof expired. Please try again.' });
     }
 
     if (rssi < MIN_RSSI) {
@@ -236,16 +307,16 @@ router.post('/mark', verifyStudent, async (req, res) => {
     const sessionDate = now.toISOString().slice(0, 10);
 
     let [sessions] = await pool.query(
-      `SELECT id FROM attendance_sessions WHERE floor_id = ? AND session_date = ?`,
-      [floorId, sessionDate]
+      `SELECT id FROM attendance_sessions WHERE floor_id = ? AND session_date = ? AND session_type = ?`,
+      [floorId, sessionDate, activeSessionType]
     );
 
     let activeSessionId;
     if (sessions.length === 0) {
       const [result] = await pool.query(
-        `INSERT INTO attendance_sessions (floor_id, session_date, starts_at, ends_at)
-         VALUES (?, ?, ?, ?)`,
-        [floorId, sessionDate, startDt, endDt]
+        `INSERT INTO attendance_sessions (floor_id, session_date, starts_at, ends_at, session_type)
+         VALUES (?, ?, ?, ?, ?)`,
+        [floorId, sessionDate, startDt, endDt, activeSessionType]
       );
       activeSessionId = result.insertId;
     } else {
@@ -260,27 +331,28 @@ router.post('/mark', verifyStudent, async (req, res) => {
     const bankCode = students[0].student_code;
     const studentName = students[0].name;
 
-    try {
-      await pool.query(
-        `INSERT INTO attendance_records (session_id, bank_code, student_name, floor_id, device_uuid, rssi, ble_token_used)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [activeSessionId, bankCode, studentName, proofFloorId, 'BLE_APP', rssi, decryptedProof]
-      );
-    } catch (dbErr) {
-      if (dbErr.code === 'ER_DUP_ENTRY') {
-        // Ignored, they already marked
-      } else {
-        throw dbErr;
-      }
+    // Check if attendance already marked
+    const [existing] = await pool.query(
+      'SELECT session_id FROM attendance_records WHERE session_id = ? AND bank_code = ?',
+      [activeSessionId, bankCode]
+    );
+
+    if (existing.length > 0) {
+      return res.status(200).json({ success: true, message: 'Attendance already marked for today' });
     }
 
-    console.log(`[INFO] Attendance BLE verify successful for ${bankCode}. Stored in local DB.`);
+    // Store in local MySQL DB
+    await pool.query(
+      `INSERT INTO attendance_records (session_id, bank_code, student_name, floor_id, device_uuid, rssi, ble_token_used)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [activeSessionId, bankCode, studentName, floorId, 'NA', rssi, 'BEACON_ONLY']
+    );
 
-
+    console.log(`[INFO] Attendance marked successfully for ${bankCode}.`);
     return res.status(201).json({ success: true, message: 'Attendance marked successfully' });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ success: false, message: 'Server error: ' + (err.sqlMessage || err.message) });
   }
 });
 

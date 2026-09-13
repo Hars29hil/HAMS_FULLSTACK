@@ -1,11 +1,8 @@
-import 'dart:convert';
 import 'package:dio/dio.dart';
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart' as fbp;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import '../../components/hams_button.dart';
@@ -36,6 +33,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
   bool _attendanceActive = false;
   String _startTime = '';
   String _endTime = '';
+  Map<String, dynamic> _schedules = {};
   bool _isLoadingStatus = true;
 
   late AnimationController _animController;
@@ -84,6 +82,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
             _attendanceActive = data['attendance_active'] ?? false;
             _startTime = data['start_time'] ?? '';
             _endTime = data['end_time'] ?? '';
+            _schedules = data['schedules'] ?? {};
             _isLoadingStatus = false;
           });
         }
@@ -140,7 +139,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
     if (msg.contains('bluetooth') ||
         msg.contains('ble') ||
         msg.contains('gatt')) {
-      return 'Could not connect to the floor device. Make sure Bluetooth is turned on and you are on your assigned floor.';
+      return 'Could not connect to the attendance beacon. Make sure Bluetooth is turned on and you are close to the ESP-32.';
     }
     if (msg.contains('permission')) {
       return 'Bluetooth and Location permissions are needed. Please allow them in your phone settings.';
@@ -152,19 +151,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
       return 'Connection timed out. Please move closer to the floor device and try again.';
     }
     if (msg.contains('could not find') || msg.contains('esp32')) {
-      return 'Could not find the floor device. Make sure you are on your assigned floor and try again.';
+      return 'Could not find the attendance beacon. Make sure you are close to an active ESP-32 device and try again.';
     }
     if (msg.contains('floor')) {
-      return 'You are not on your assigned floor. Please go to your floor and try again.';
+      return 'Please go near your hostel ESP-32 beacon and try again.';
     }
     if (msg.contains('network') ||
         msg.contains('socket') ||
         msg.contains('connection refused')) {
       return 'Could not connect to the server. Please check your internet connection.';
     }
-    if (msg.contains('platform') || msg.contains('platformexception')) {
-      return 'Something went wrong with your device. Please restart the app and try again.';
-    }
+    // Removed the platform exception mask so the real error bubbles up
 
     String cleaned = e
         .toString()
@@ -190,11 +187,11 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
       return;
     }
 
-    if (!_attendanceActive && _startTime.isNotEmpty && _endTime.isNotEmpty) {
+    if (!_attendanceActive) {
       _showResultDialog(
         title: 'Not Available',
         message:
-            'Attendance is available from $_startTime to $_endTime. Please come back during that time.',
+            'Attendance is currently closed. Please check the schedule on your dashboard for the next available session.',
         icon: Icons.schedule,
         color: AppColors.amber,
       );
@@ -226,12 +223,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
         throw Exception('Please turn on Bluetooth to mark your attendance.');
       }
 
-      final targetServiceUuid = fbp.Guid(
-        '4fafc201-1fb5-459e-8fcc-c5c9c331914b',
-      );
-      final targetCharacteristicUuid = fbp.Guid(
-        'beb5483e-36e1-4688-b7f5-ea07361b26a8',
-      );
+      final targetServiceUuid = Guid("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
 
       // ── Step 2: Scan for ESP32 BLE Device ──
       int scanRssi = -50; // Default safe RSSI value
@@ -275,138 +267,15 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
 
       if (targetDevice == null) {
         throw Exception(
-          'Could not find the floor device. Make sure you are on your assigned floor and try again.',
+          'Could not find the attendance beacon. Make sure you are close to an active ESP-32 device and try again.',
         );
       }
 
-      // ── Step 3: Connect to ESP32 (with Android 133 fix) ──
-      if (Platform.isAndroid) {
-        await Future.delayed(const Duration(milliseconds: 600));
-        try {
-          await targetDevice!.disconnect();
-        } catch (_) {}
-        await Future.delayed(const Duration(milliseconds: 300));
-      }
-
-      try {
-        await targetDevice!.connect(
-          timeout: const Duration(seconds: 10),
-          autoConnect: false,
-          mtu: null,
-          license: fbp.License.nonprofit,
-        );
-      } catch (e) {
-        // Retry once on Android Error 133
-        try {
-          await targetDevice!.disconnect();
-        } catch (_) {}
-        await Future.delayed(const Duration(seconds: 1));
-        await targetDevice!.connect(
-          timeout: const Duration(seconds: 12),
-          autoConnect: false,
-          mtu: null,
-          license: fbp.License.nonprofit,
-        );
-      }
-
-      // ── Step 4: Read the BLE Token ──
-      String bleToken = "";
-
-      try {
-        // Give Android time to stabilize the GATT connection
-        await Future.delayed(const Duration(milliseconds: 800));
-
-        List<BluetoothService> services = await targetDevice!
-            .discoverServices();
-        BluetoothCharacteristic? targetCharacteristic;
-
-        for (BluetoothService service in services) {
-          if (service.uuid == targetServiceUuid) {
-            for (BluetoothCharacteristic c in service.characteristics) {
-              if (c.uuid == targetCharacteristicUuid) {
-                targetCharacteristic = c;
-                break;
-              }
-            }
-          }
-        }
-
-        if (targetCharacteristic == null) {
-          throw Exception(
-            'Could not connect to the floor device properly. Please try again.',
-          );
-        }
-
-        final tokenBytes = await targetCharacteristic.read();
-        bleToken = utf8.decode(tokenBytes).trim();
-
-        // ── Step 5: App-Bridged Architecture Logic ──
-        if (bleToken == 'NONE') {
-          // The ESP-32 has no token yet! We are the first student.
-          // Let's ask the backend for a token and write it to the ESP-32.
-          try {
-            final reqRes = await ApiClient().dio.post(
-              '/attendance/challenge',
-              data: {"rssi": scanRssi},
-            );
-
-            if (reqRes.data is Map && reqRes.data['success'] == true) {
-              String generatedToken = reqRes.data['challenge'];
-              int durationMinutes = 120; // Default 2 hours
-
-              // Tell the ESP-32 its new token and duration!
-              String writeCommand = "SET:$generatedToken:$durationMinutes";
-              await targetCharacteristic.write(utf8.encode(writeCommand));
-
-              // The backend /request-token endpoint already marked our attendance!
-              bleToken = generatedToken; // Update local variable just in case
-
-              // Disconnect and jump to Success
-              try {
-                await targetDevice!.disconnect();
-              } catch (_) {}
-
-              if (mounted) {
-                final prefs = await SharedPreferences.getInstance();
-                final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-                await prefs.setString('last_attendance_date', today);
-
-                setState(() {
-                  _alreadyMarked = true;
-                });
-
-                _showResultDialog(
-                  title: 'Success!',
-                  message:
-                      'Your attendance has been marked!Come tommory again to be consistent',
-                  icon: Icons.star,
-                  color: AppColors.green,
-                );
-              }
-              return; // We are completely done!
-            }
-          } on DioException catch (dioErr) {
-            final data = dioErr.response?.data;
-            if (data is Map && data['message'] != null) {
-              throw Exception(data['message'].toString());
-            }
-            throw Exception('Server error: ${dioErr.message}');
-          }
-        }
-      } finally {
-        // Only disconnect here if we haven't already returned early
-        try {
-          if (targetDevice!.isConnected) {
-            await targetDevice!.disconnect();
-          }
-        } catch (_) {}
-      }
-
-      // ── Step 6: Normal Attendance (Token already existed) ──
+      // ── Step 6: Beacon Attendance (No connection required!) ──
       try {
         final res = await ApiClient().dio.post(
           '/attendance/mark',
-          data: {"proof": bleToken, "rssi": scanRssi},
+          data: {"rssi": scanRssi},
         );
 
         if (res.data is Map && res.data['success'] != true) {
@@ -443,10 +312,6 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
       }
     } catch (e) {
       if (!mounted) return;
-      // Make sure we disconnect if something went wrong mid-flow
-      try {
-        await targetDevice?.disconnect();
-      } catch (_) {}
       _showResultDialog(
         title: 'Could Not Mark Attendance',
         message: _friendlyError(e),
@@ -575,6 +440,17 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
     final isOpen = _attendanceActive;
     final statusColor = isOpen ? AppColors.green : AppColors.amber;
 
+    String scheduleString = 'Schedules:\n';
+    _schedules.forEach((key, value) {
+      String capKey = key.isNotEmpty ? '${key[0].toUpperCase()}${key.substring(1)}' : key;
+      scheduleString += '$capKey: ${value['start'] ?? ''}-${value['end'] ?? ''}\n';
+    });
+    scheduleString = scheduleString.trim();
+
+    String contentText = isOpen 
+        ? 'Current window: $_startTime – $_endTime\n\n$scheduleString'
+        : scheduleString;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -618,7 +494,7 @@ class _StudentDashboardPageState extends State<StudentDashboardPage>
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Today\'s window: $_startTime – $_endTime',
+                      contentText,
                       style: TextStyle(
                         fontSize: 12,
                         color: statusColor.withValues(alpha: 0.7),
